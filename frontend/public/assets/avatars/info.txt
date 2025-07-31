@@ -1,0 +1,8 @@
+This folder contains avatar images used in the AI Debate Project.
+
+- Each image represents a participant or AI debater.
+- Filenames should be descriptive (e.g., ai_debater1.png, human_user2.jpg).
+- Recommended size: 128x128 pixels, PNG or JPG format.
+- Place all avatar images in this directory for frontend access.
+
+Contact the project maintainer for questions about avatar usage or updates.
