@@ -1,0 +1,16 @@
+services:
+  - type: web
+    name: ai-debate-backend
+    region: oregon
+    plan: free
+    env: python
+    rootDir: backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn src.main:app --host=0.0.0.0 --port=$PORT
+    envVars:
+      - key: SUPABASE_URL
+        fromDatabaseSecret: supabase_url
+      - key: SUPABASE_SERVICE_KEY
+        fromDatabaseSecret: supabase_service_key
+      - key: MONGO_URI
+        value: ""  # Optional later
