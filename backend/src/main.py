@@ -11,7 +11,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncio
 from dotenv import load_dotenv
-from local_functions import warm_up_models
+from .local_functions import warm_up_models
 
 load_dotenv()
 
