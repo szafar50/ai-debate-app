@@ -8,6 +8,24 @@
     @apply bg-gray-900 text-gray-100 font-sans antialiased;
   }
 }
+@keyframes scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-scale-in {
+  animation: scale-in 0.2s ease-out;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out;
+}
 
 /* === Animations === */
 @layer utilities {
@@ -47,4 +65,11 @@
     @apply px-4 py-2 border border-gray-600 rounded bg-gray-800 text-white 
            placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500;
   }
+.hide-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.hide-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
 }

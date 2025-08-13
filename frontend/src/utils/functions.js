@@ -1,9 +1,34 @@
 // frontend/src/utils/functions.js
 
-// ✅ Add helper function
 function formatTime(date) {
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
+
+const getRecentContext = async (currentQuestion) => {
+  try {
+    const res = await fetch('http://localhost:8000/messages');
+    const data = await res.json();
+    const messages = data.messages || [];
+
+    const recent = messages.slice(-6); // Last 6 messages
+
+    let context = "### Recent Debate\n";
+    recent.forEach(msg => {
+      if (msg.sender === 'user') {
+        context += `User: ${msg.text}\n`;
+      } else {
+        context += `${msg.model}: ${msg.text}\n`;
+      }
+    });
+    context += `### Current Question\nUser: ${currentQuestion}`;
+    return context;
+  } catch {
+    return `User: ${currentQuestion}`; // Fallback
+  }
+};
+
+
+
 
 export const startDebate = async (selectedModels, setMessages) => {
   if (selectedModels.length < 2) {
@@ -21,6 +46,8 @@ export const startDebate = async (selectedModels, setMessages) => {
     },
   ]);
 
+  
+
   try {
     const res = await fetch('http://localhost:8000/debate', {
       method: 'POST',
@@ -30,6 +57,7 @@ export const startDebate = async (selectedModels, setMessages) => {
         question: null
       }),
     });
+    
 
     const data = await res.json();
 
@@ -66,12 +94,24 @@ export const sendMessage = async (
   setInput,
   setMessages,
   setIsThinking,
-  setThinkingMessage
+  setThinkingMessage,
+  setThinkingModels
 ) => {
   if (!input.trim()) return;
   if (selectedModels.length < 2) return;
 
+  const context = await getRecentContext(input);
+
+  const enhancedInput = `
+  ## Context from Previous Conversation
+  ${context}
+
+  ## New Question
+  User: "${input}"
+  `.trim();
+
   setIsThinking(true);
+  setThinkingModels(new Set(selectedModels));
 
   const userMessage = {
     id: crypto.randomUUID(),
@@ -83,32 +123,23 @@ export const sendMessage = async (
   setInput('');
 
   try {
-    // Show dynamic thinking message
-    for (const model of selectedModels) {
-      setThinkingMessage(`${model} is analyzing your point...`);
-      await new Promise(resolve => setTimeout(resolve, 800)); // Simulate staggered thinking
-    }
-
-    setThinkingMessage("Debate in progress...");
-
+    // ✅ Call backend ONCE with all models
     const res = await fetch('http://localhost:8000/debate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ models: selectedModels, question: input }),
+      headers: { 'Content-Type': 'application/json', },
+      body: JSON.stringify({ models: selectedModels, question: enhancedInput }),
     });
 
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
+    if (!data.responses?.length) throw new Error('Invalid response format');
 
-    if (!res.ok || !data.responses) {
-      throw new Error(data.error || 'Invalid response');
-    }
-
-    // Add responses one by one with delay (like typing)
+    // ✅ Now simulate staggered display
     for (const resp of data.responses) {
-      setThinkingMessage(`${resp.model} is replying...`);
+      setThinkingMessage(`${resp.model} is responding...`);
 
       // Simulate typing effect
-      await new Promise(resolve => setTimeout(resolve, 1200));
+      await new Promise(resolve => setTimeout(resolve, 800));
 
       const botMessage = {
         id: crypto.randomUUID(),
@@ -119,8 +150,19 @@ export const sendMessage = async (
       };
 
       setMessages(prev => [...prev, botMessage]);
+
+      // Remove from thinking set
+      setThinkingModels(prev => {
+        const next = new Set(prev);
+        next.delete(resp.model);
+        return next;
+      });
+
+      // Delay between models
+      await new Promise(resolve => setTimeout(resolve, 600));
     }
   } catch (err) {
+    console.error("Send error:", err);
     setMessages(prev => [...prev, {
       id: crypto.randomUUID(),
       text: `❌ ${err.message}`,
@@ -129,7 +171,8 @@ export const sendMessage = async (
     }]);
   } finally {
     setIsThinking(false);
-    setThinkingMessage('');
+    setThinkingMessage("");
+    setThinkingModels(new Set());
   }
 };
 

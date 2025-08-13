@@ -80,7 +80,7 @@ try:
         VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
     """, models_data)
 
-    conn.commit()
+    conn.commit() # Commit the changes
     print("✅ Tables created and seed data inserted!")
 except Exception as e:
     print(f"❌ Error: {e}")
