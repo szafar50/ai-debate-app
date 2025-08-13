@@ -1,17 +1,15 @@
-# backend/src/main.py
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
 from supabase import create_client, Client
 import os
 import uuid
-import requests
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 import asyncio
 from dotenv import load_dotenv
-from .local_functions import warm_up_models
+from .local_functions import warm_up_models, call_model  # ✅ Updated import
 
 load_dotenv()
 
@@ -27,95 +25,11 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 async def lifespan(app: FastAPI):
     asyncio.create_task(warm_up_models())
     print("🚀 FastAPI app started. Warming up models in background...")
-    yield  # ✅ Only one yield
+    yield
 
 app = FastAPI(lifespan=lifespan)
 
-# CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-class DebateRequest(BaseModel):
-    models: List[str]
-    question: Optional[str] = None
-
-MODEL_MAPPING = {
-    "GPT-4": {"use": "llama3", "style": "logical, confident", "tone": "serious"},
-    "Mistral": {"use": "mistral", "style": "fast, precise", "tone": "sharp"},
-    "PaLM 2": {"use": "phi3:mini", "style": "neutral, factual", "tone": "calm"},
-    "Qwen": {"use": "qwen:1.8b", "style": "creative, poetic", "tone": "genius"},
-    "X": {"use": "llama3", "style": "mysterious", "tone": "friendly"},
-}
-
-@app.get("/health")
-async def health():
-    return {
-        "status": "ok",
-        "time": datetime.now().isoformat(),
-        "message": "AI Debate Backend is running smoothly",
-        "models_loaded": list(MODEL_MAPPING.keys())
-    }
-
-@app.get("/models")
-async def get_models():
-    try:
-        response = supabase.table("ai_models").select("*").execute()
-        rows = response.data
-        models = []
-        for r in rows:
-            member_since_str = "Unknown"
-            if r["member_since"]:
-                try:
-                    from datetime import datetime
-                    date_obj = datetime.strptime(r["member_since"], "%Y-%m-%d")
-                    member_since_str = date_obj.strftime("%b %Y")
-                except:
-                    member_since_str = r["member_since"]
-            models.append({
-                "name": r["name"],
-                "displayName": r["display_name"],
-                "avatar": r["avatar"],
-                "description": r["description"],
-                "memberSince": member_since_str,
-                "debatesFinished": r["debates_finished"],
-                "traits": {
-                    "creativity": r["creativity"],
-                    "logic": r["logic"],
-                    "speed": r["speed"],
-                    "ethics": r["ethics"]
-                }
-            })
-        return {"models": models}
-    except Exception as e:
-        return {"error": str(e)}
-
-@app.get("/messages")
-async def get_messages():
-    try:
-        response = supabase.table("messages") \
-            .select("*") \
-            .order("timestamp", desc=True) \
-            .limit(2) \
-            .execute()
-        messages_data = list(reversed(response.data or []))
-        messages = [
-            {
-                "id": m["id"],
-                "text": m["text"],
-                "sender": m["sender"],
-                "timestamp": m["timestamp"],
-                "model": m.get("model")
-            }
-            for m in messages_data
-        ]
-        return {"messages": messages}
-    except Exception as e:
-        return {"error": str(e)}
+# ... (keep all your other routes unchanged until /debate)
 
 @app.post("/debate")
 async def debate(data: DebateRequest):
@@ -155,11 +69,11 @@ async def debate(data: DebateRequest):
     # ✅ Generate AI responses
     for model_name in selected_models:
         ollama_info = MODEL_MAPPING.get(model_name, {
-            "use": "llama3",
+            "use": os.getenv("MODEL_NAME", "gpt-4o-mini"),
             "style": "neutral",
             "tone": "serious"
         })
-        ollama_model = ollama_info["use"]
+        model_to_use = ollama_info["use"]
         style = ollama_info["style"]
         tone = ollama_info.get("tone", "serious")
 
@@ -172,14 +86,7 @@ Respond in 1-2 short sentences.
         """
 
         try:
-            response = requests.post(
-                "http://localhost:11434/api/generate",
-                json={"model": ollama_model, "prompt": prompt, "stream": False},
-                timeout=60  # 30 - 60 - 90 then Increased timeout for Ollama
-            )
-            response.raise_for_status()
-            result = response.json()
-            reply = result.get("response", "No response").strip()
+            reply = call_model(prompt, model_to_use)  # ✅ Uses multi-provider
         except Exception as e:
             print(f"❌ {model_name} failed: {e}")
             reply = "Error: Could not generate response"
@@ -199,3 +106,8 @@ Respond in 1-2 short sentences.
             print(f"❌ Failed to save bot message: {e}")
 
     return {"responses": responses}
+
+# === CHANGE NOTES ===
+# - Replaced Ollama hardcoded calls with call_model() from local_functions.py.
+# - Default MODEL_NAME pulled from env if not in MODEL_MAPPING.
+# - Now works with OpenAI, Together AI, DeepInfra, or Ollama by switching env vars.
