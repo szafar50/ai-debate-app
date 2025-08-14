@@ -29,7 +29,92 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
-# ... (keep all your other routes unchanged until /debate)
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+class DebateRequest(BaseModel):
+    models: List[str]
+    question: Optional[str] = None
+
+MODEL_MAPPING = {
+    "GPT-4": {"use": "llama3", "style": "logical, confident", "tone": "serious"},
+    "Mistral": {"use": "mistral", "style": "fast, precise", "tone": "sharp"},
+    "PaLM 2": {"use": "phi3:mini", "style": "neutral, factual", "tone": "calm"},
+    "Qwen": {"use": "qwen:1.8b", "style": "creative, poetic", "tone": "genius"},
+    "X": {"use": "llama3", "style": "mysterious", "tone": "friendly"},
+}
+
+@app.get("/health")
+async def health():
+    return {
+        "status": "ok",
+        "time": datetime.now().isoformat(),
+        "message": "AI Debate Backend is running smoothly",
+        "models_loaded": list(MODEL_MAPPING.keys()),
+        "current_provider": os.getenv("MODEL_PROVIDER", "openai"),
+        "current_model": os.getenv("MODEL_NAME", "gpt-4o-mini")
+    }
+
+@app.get("/models")
+async def get_models():
+    try:
+        response = supabase.table("ai_models").select("*").execute()
+        rows = response.data
+        models = []
+        for r in rows:
+            member_since_str = "Unknown"
+            if r["member_since"]:
+                try:
+                    date_obj = datetime.strptime(r["member_since"], "%Y-%m-%d")
+                    member_since_str = date_obj.strftime("%b %Y")
+                except:
+                    member_since_str = r["member_since"]
+            models.append({
+                "name": r["name"],
+                "displayName": r["display_name"],
+                "avatar": r["avatar"],
+                "description": r["description"],
+                "memberSince": member_since_str,
+                "debatesFinished": r["debates_finished"],
+                "traits": {
+                    "creativity": r["creativity"],
+                    "logic": r["logic"],
+                    "speed": r["speed"],
+                    "ethics": r["ethics"]
+                }
+            })
+        return {"models": models}
+    except Exception as e:
+        return {"error": str(e)}
+
+@app.get("/messages")
+async def get_messages():
+    try:
+        response = supabase.table("messages") \
+            .select("*") \
+            .order("timestamp", desc=True) \
+            .limit(2) \
+            .execute()
+        messages_data = list(reversed(response.data or []))
+        messages = [
+            {
+                "id": m["id"],
+                "text": m["text"],
+                "sender": m["sender"],
+                "timestamp": m["timestamp"],
+                "model": m.get("model")
+            }
+            for m in messages_data
+        ]
+        return {"messages": messages}
+    except Exception as e:
+        return {"error": str(e)}
 
 @app.post("/debate")
 async def debate(data: DebateRequest):
@@ -108,6 +193,7 @@ Respond in 1-2 short sentences.
     return {"responses": responses}
 
 # === CHANGE NOTES ===
-# - Replaced Ollama hardcoded calls with call_model() from local_functions.py.
-# - Default MODEL_NAME pulled from env if not in MODEL_MAPPING.
-# - Now works with OpenAI, Together AI, DeepInfra, or Ollama by switching env vars.
+# - Added import for call_model()
+# - Restored DebateRequest class (fixing NameError)
+# - Updated /debate endpoint to use call_model()
+# - /health now returns current provider & model from env vars
