@@ -6,10 +6,8 @@ import os
 import uuid
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
-from contextlib import asynccontextmanager
-import asyncio
 from dotenv import load_dotenv
-from .local_functions import warm_up_models, call_model  # ✅ Updated import
+from .local_functions import call_model  # ✅ No warm_up_models import
 
 load_dotenv()
 
@@ -20,14 +18,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     raise Exception("Missing SUPABASE_URL or SUPABASE_SERVICE_KEY")
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
-# Lifespan
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    asyncio.create_task(warm_up_models())
-    print("🚀 FastAPI app started. Warming up models in background...")
-    yield
-
-app = FastAPI(lifespan=lifespan)
+app = FastAPI()
 
 # CORS
 app.add_middleware(
@@ -171,7 +162,7 @@ Respond in 1-2 short sentences.
         """
 
         try:
-            reply = call_model(prompt, model_to_use)  # ✅ Uses multi-provider
+            reply = call_model(prompt, model_to_use)
         except Exception as e:
             print(f"❌ {model_name} failed: {e}")
             reply = "Error: Could not generate response"
@@ -193,7 +184,7 @@ Respond in 1-2 short sentences.
     return {"responses": responses}
 
 # === CHANGE NOTES ===
-# - Added import for call_model()
-# - Restored DebateRequest class (fixing NameError)
-# - Updated /debate endpoint to use call_model()
-# - /health now returns current provider & model from env vars
+# - Removed warm_up_models() and lifespan startup to avoid startup errors
+# - Now starts instantly for Together AI, OpenAI, DeepInfra
+# - call_model() handles all API provider requests
+# - /health shows current provider/model from env vars
