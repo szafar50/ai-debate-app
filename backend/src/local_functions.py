@@ -85,3 +85,18 @@ def warm_up_model(provider: str, model: str):
     test_prompt = "Briefly introduce yourself."
     resp = call_model(provider, model, type("obj", (object,), {"topic": None, "side_a": None, "side_b": None, "question": test_prompt}))
     logger.info(f"[Warm-up Response] {resp[:60]}..." if resp else "[Warm-up] No response")
+
+""" it will all
+call_model() dispatcher → decides which provider’s API to call
+
+Added OpenAI + Together support
+
+API keys are pulled from env vars (OPENAI_API_KEY, TOGETHER_API_KEY)
+
+Prompt builder auto-handles either a debate or question request
+
+Optional warm_up_model() just sends a short test prompt for connectivity — no heavy model loading
+
+Removed old Ollama-specific warm-up (not needed anymore)
+"""
+
