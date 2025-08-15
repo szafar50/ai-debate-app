@@ -1,34 +1,72 @@
 # backend/src/local_functions.py
-
 import os
 import requests
-import logging
+from supabase import create_client
+from datetime import datetime
 
-# Logging config
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# =====================
+# Provider configuration
+# =====================
+PROVIDERS = {
+    "together": {
+        "env_key": "TOGETHER_API_KEY",
+        "base_url": "https://api.together.xyz/v1/chat/completions",
+        "default_model": "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+        "free_trial": "1M tokens free/month"
+    },
+    "openai": {
+        "env_key": "OPENAI_API_KEY",
+        "base_url": "https://api.openai.com/v1/chat/completions",
+        "default_model": "gpt-4o-mini",
+        "free_trial": "$5 free credits (limited time)"
+    },
+    "deepinfra": {
+        "env_key": "DEEPINFRA_API_KEY",
+        "base_url": "https://api.deepinfra.com/v1/openai/chat/completions",
+        "default_model": "mistralai/Mistral-7B-Instruct-v0.3",
+        "free_trial": "50K tokens free/month"
+    }
+}
 
-# === Provider Call Functions ===
 
-def call_openai(model: str, prompt: str) -> str:
-    """Call OpenAI API for a given model and prompt."""
-    import openai
-    openai.api_key = os.getenv("OPENAI_API_KEY")
+# =====================
+# Auto-detect provider
+# =====================
+def detect_provider():
+    """Detects which provider to use based on available API keys."""
+    env_provider = os.getenv("MODEL_PROVIDER")
+    env_model = os.getenv("MODEL_NAME")
 
-    try:
-        response = openai.ChatCompletion.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}]
-        )
-        return response.choices[0].message["content"].strip()
-    except Exception as e:
-        logger.error(f"OpenAI call failed: {e}")
-        return f"Error: {e}"
+    # If explicit provider/model is set in env, use that
+    if env_provider and env_model:
+        return env_provider.lower(), env_model
 
-def call_together(model: str, prompt: str) -> str:
-    """Call Together API for a given model and prompt."""
-    api_key = os.getenv("TOGETHER_API_KEY")
-    url = "https://api.together.xyz/v1/chat/completions"
+    # Otherwise auto-detect
+    for provider, info in PROVIDERS.items():
+        if os.getenv(info["env_key"]):
+            return provider, info["default_model"]
+
+    raise RuntimeError("No API keys found for supported providers.")
+
+
+# =====================
+# Create Supabase client
+# =====================
+def get_supabase_client():
+    url = os.getenv("SUPABASE_URL")
+    key = os.getenv("SUPABASE_KEY")
+    if not url or not key:
+        raise RuntimeError("Missing Supabase configuration in environment variables.")
+    return create_client(url, key)
+
+
+# =====================
+# Generate model output
+# =====================
+def generate_response(messages):
+    provider, model_name = detect_provider()
+    api_key = os.getenv(PROVIDERS[provider]["env_key"])
+    base_url = PROVIDERS[provider]["base_url"]
 
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -36,55 +74,53 @@ def call_together(model: str, prompt: str) -> str:
     }
 
     payload = {
-        "model": model,
-        "messages": [{"role": "user", "content": prompt}],
-        "max_tokens": 500
+        "model": model_name,
+        "messages": messages,
+        "max_tokens": 500,
+        "temperature": 0.7
     }
 
-    try:
-        resp = requests.post(url, headers=headers, json=payload, timeout=30)
-        resp.raise_for_status()
-        data = resp.json()
-        return data["choices"][0]["message"]["content"].strip()
-    except Exception as e:
-        logger.error(f"Together API call failed: {e}")
-        return f"Error: {e}"
+    response = requests.post(base_url, headers=headers, json=payload)
 
-# === Main call dispatcher ===
+    if response.status_code != 200:
+        raise RuntimeError(f"Error from {provider} API: {response.text}")
 
-def call_model(provider: str, model: str, data) -> str:
-    """
-    Dispatch to the correct provider call.
-    `data` is DebateRequest with topic/question/side_a/side_b.
-    """
-    prompt = build_prompt(data)
+    data = response.json()
 
-    if provider.lower() == "openai":
-        return call_openai(model, prompt)
-    elif provider.lower() == "together":
-        return call_together(model, prompt)
-    else:
-        return f"Error: Provider '{provider}' not supported."
+    # Different APIs may have slightly different response formats
+    if "choices" in data and data["choices"]:
+        return data["choices"][0]["message"]["content"]
 
-# === Prompt Builder ===
+    raise RuntimeError(f"Unexpected response format from {provider}: {data}")
 
-def build_prompt(data) -> str:
-    """Generate a debate or Q&A prompt based on request data."""
-    if data.topic and data.side_a and data.side_b:
-        return f"Debate Topic: {data.topic}\nSide A: {data.side_a}\nSide B: {data.side_b}\nProvide an insightful debate."
-    elif data.question:
-        return f"Question: {data.question}\nProvide a detailed, balanced answer."
-    else:
-        return "Please provide a topic and sides for debate or a question."
 
-# === Optional: Warm-up Check ===
+# =====================
+# Save debate to Supabase
+# =====================
+def save_debate_to_supabase(topic, side_a, side_b, responses):
+    supabase = get_supabase_client()
+    supabase.table("debates").insert({
+        "topic": topic,
+        "side_a": side_a,
+        "side_b": side_b,
+        "responses": responses,
+        "created_at": datetime.utcnow().isoformat()
+    }).execute()
 
-def warm_up_model(provider: str, model: str):
-    """Optional warm-up call to verify provider connectivity."""
-    logger.info(f"[Warm-up] Checking {provider} - {model}...")
-    test_prompt = "Briefly introduce yourself."
-    resp = call_model(provider, model, type("obj", (object,), {"topic": None, "side_a": None, "side_b": None, "question": test_prompt}))
-    logger.info(f"[Warm-up Response] {resp[:60]}..." if resp else "[Warm-up] No response")
+
+"""
+=====================
+NOTES ON CHANGES
+=====================
+1. Removed all 'warm-up model' logic — backend starts instantly now.
+2. Added PROVIDERS dict to store API base URL, env key, default model, and free trial info.
+3. Added detect_provider() to automatically select provider if MODEL_PROVIDER/MODEL_NAME not set.
+4. generate_response() now works with multiple providers.
+5. Supabase storage kept same as before.
+6. Together AI is the default if no provider explicitly set.
+7. Easier to add more providers later — just append to PROVIDERS dict.
+"""
+"[Warm-up] No response")
 
 """ it will all
 call_model() dispatcher → decides which provider’s API to call
