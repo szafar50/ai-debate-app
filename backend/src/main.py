@@ -1,5 +1,5 @@
 # backend/src/main.py
-# we changed codes as AI advised
+
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from typing import List, Optional
@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from local_functions import call_model  # unified function for all providers
+from .local_functions import call_model  # <-- FIXED: relative import
 
 load_dotenv()
 
@@ -37,7 +37,7 @@ class DebateRequest(BaseModel):
     side_a: Optional[str] = None
     side_b: Optional[str] = None
     question: Optional[str] = None
-    models: Optional[List[str]] = None  # <-- made optional
+    models: Optional[List[str]] = None  # <-- optional now
 
 # Health check
 @app.get("/health")
@@ -46,7 +46,7 @@ async def health():
         "status": "ok",
         "time": datetime.utcnow().isoformat(),
         "message": "AI Debate Backend is running smoothly",
-        "models_loaded": ["Example"],  # placeholder list
+        "models_loaded": ["Example"],
         "current_provider": os.getenv("MODEL_PROVIDER"),
         "current_model": os.getenv("MODEL_NAME")
     }
@@ -54,7 +54,6 @@ async def health():
 # Debate endpoint
 @app.post("/debate")
 async def debate(data: DebateRequest):
-    # Default model if not provided in request
     models_to_use = data.models or [os.getenv("MODEL_NAME")]
     provider = os.getenv("MODEL_PROVIDER", "openai")
 
@@ -66,7 +65,6 @@ async def debate(data: DebateRequest):
         except Exception as e:
             responses.append({"model": model, "response": f"Error: {str(e)}"})
 
-    # Store in Supabase
     try:
         supabase.table("debates").insert({
             "id": str(uuid.uuid4()),
@@ -81,11 +79,3 @@ async def debate(data: DebateRequest):
         raise HTTPException(status_code=500, detail=f"Supabase insert error: {str(e)}")
 
     return {"responses": responses}
-
-
-
-# === CHANGE NOTES ===
-# - Removed warm_up_models() and lifespan startup to avoid startup errors
-# - Now starts instantly for Together AI, OpenAI, DeepInfra
-# - call_model() handles all API provider requests
-# - /health shows current provider/model from env vars
