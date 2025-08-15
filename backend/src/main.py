@@ -97,3 +97,4 @@ NOTES ON CHANGES
 2. "models" in DebateRequest is now optional.
 3. Uses detect_provider() from local_functions.py to auto-pick provider/model.
 4. Works with Together AI or
+"""
